@@ -3,28 +3,40 @@ import random
 import re
 import time
 import pandas as pd
-from flask import Flask, render_template, request, jsonify
+import streamlit as st
 from google import genai
 from google.genai import types
 
-app = Flask(__name__)
+# ==========================================
+# 1. KONFIGURASI HALAMAN STREAMLIT
+# ==========================================
+st.set_page_config(page_title="Ruang Aman - Psikolog AI", page_icon="🌿", layout="centered")
+st.title("🌿 Ruang Aman AI")
+st.caption("Sahabat curhat yang aman, empatik, dan menjaga privasimu.")
 
-# 1. INISIALISASI GEMINI CLIENT
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "API")
+# ==========================================
+# 2. INISIALISASI GEMINI CLIENT & DATASET
+# ==========================================
+# Untuk deploy di Streamlit Cloud, masukkan API KEY di menu "Advanced Settings -> Secrets"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "MASUKKAN_API_KEY_CADANGAN_DISINI") 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 2. POPULASI DATASET DARI FILE LOKAL MENGGUNAKAN PANDAS    
-print("Sedang memuat dataset konseling dari file lokal... Mohon tunggu sebentar.")
-try:
-    # Mengarah ke file hasil cleaning di dalam folder dataset
-    file_path = "dataset/cleaned_dataset.json"
-    df_dataset = pd.read_json(file_path, lines=True)
-    print("Dataset berhasil dimuat! Total data referensi:", len(df_dataset))
-except Exception as e:
-    print("Gagal memuat dataset lokal. Pastikan file ada di folder yang benar. Error:", e)
-    df_dataset = None
+# Gunakan cache agar Pandas tidak meload ulang dataset setiap kali user nge-chat
+@st.cache_data
+def load_dataset():
+    try:
+        file_path = "dataset/cleaned_dataset.json"
+        df = pd.read_json(file_path, lines=True)
+        return df
+    except Exception as e:
+        st.error(f"Gagal memuat dataset: {e}")
+        return None
 
-# 3. SOP PSIKOLOG GAYA SAHABAT (System Instruction)
+df_dataset = load_dataset()
+
+# ==========================================
+# 3. SOP PSIKOLOG GAYA SAHABAT (Sama Persis)
+# ==========================================
 SOP_PSIKOLOG = (
     "Anda adalah seorang sahabat dekat (bestie) sekaligus Psikolog Klinis profesional yang sangat tulus, peka, dan tahu batasan.\n\n"
     "ADAPTASI GAYA BAHASA (PENTING!):\n"
@@ -43,38 +55,36 @@ SOP_PSIKOLOG = (
     "- JANGAN PERNAH memotong jawaban di tengah kalimat. Pastikan semua kalimat selesai terproses sampai tanda titik terakhir."
 )
 
-# 4. GUARDRAIL KEAMANAN
+# ==========================================
+# 4. GUARDRAIL KEAMANAN (Sama Persis)
+# ==========================================
 def cek_kondisi_darurat(teks_pasien: str) -> str | None:
-    kata_kunci_bahaya = [
-        # BAHASA INDONESIA
+    kata_kunci_darurat = [
         'bunuh diri', 'bunuhdiri', 'akhiri hidup', 'mengakhiri hidup', 'cabut nyawa',
         'ingin mati', 'pengen mati', 'mau mati', 'mending mati', 'mending aku mati',
         'mati saja', 'mati aja', 'cara mati', 'biarkan aku mati', 'lebih baik mati',
-        'kalau aku mati', 'dengan mati', 'dibunuh', 'tiada',
-        'tidur selamanya', 'lenyap dari dunia', 'menyusul tuhan',
-        'selamat tinggal dunia', 'akhir dari segalanya', 'sudah saatnya aku pergi',
-        'tidak hidup', 'tetap hidup', 'nyerah sama hidup', 'capek hidup',
-        'gak kuat hidup', 'nggak kuat hidup',
-        'self harm', 'self-harm', 'menyakiti diri', 'menyakiti diriku', 'melukai diri',
-        'nyilet', 'menyayat', 'sayat', 'cutting', 'potong nadi',
-        'gantung diri', 'lompat', 'loncat', 'nabrakin diri', 'menabrakkan diri',
-        'racun', 'baygon', 'overdosis', 'telan pil', 'puluhan pil',
-        'menusuk', 'surat wasiat', 'pesan terakhir',
-        # BAHASA INGGRIS
+        'kalau aku mati', 'dengan mati', 'dibunuh', 'tiada', 'tidur selamanya', 
+        'lenyap dari dunia', 'menyusul tuhan', 'selamat tinggal dunia', 'akhir dari segalanya', 
+        'sudah saatnya aku pergi', 'tidak hidup', 'tetap hidup', 'nyerah sama hidup', 
+        'capek hidup', 'gak kuat hidup', 'nggak kuat hidup', 'self harm', 'self-harm', 
+        'menyakiti diri', 'menyakiti diriku', 'melukai diri', 'nyilet', 'menyayat', 
+        'sayat', 'cutting', 'potong nadi', 'gantung diri', 'lompat', 'loncat', 
+        'nabrakin diri', 'menabrakkan diri', 'racun', 'baygon', 'overdosis', 'telan pil', 
+        'puluhan pil', 'menusuk', 'surat wasiat', 'pesan terakhir',
         'suicide', 'kill myself', 'killing myself', 'want to die', 'end my life', 'end it all',
         'rather be dead', 'rather die', 'stop living', 'dont want to live', "don't want to live",
         'sleep forever', 'better off dead', 'take my own life', 'take my life', 'ready to die',
         'just die', 'let me die', 'if i die', 'die painlessly', 'by dying',
-        'cut myself', 'cutting myself', 'cutting my', 'cut my arm',
-        'slit my wrists', 'hang myself', 'swallow pills', 'poison', 'bug spray',
-        'jump off', 'jumping off', 'jump from', 'about to jump',
-        'stab myself', 'hurt myself', 'hurting myself', 'harm myself', 'swallow a bottle',
-        'dozens of pills', 'suicide note', 'done with life', 'no reason to live',
-        'goodbye world', 'goodbye everyone', 'end the pain forever', 'way out of this life',
-        "wasn't alive", 'stay alive', 'disappear from this world', 'throw myself',
-        'bear living', "i'm gone", 'be killed'
-        ]
-    if any(kata in teks_pasien.lower() for kata in kata_kunci_bahaya):
+        'cut myself', 'cutting myself', 'cutting my', 'cut my arm', 'slit my wrists', 
+        'hang myself', 'swallow pills', 'poison', 'bug spray', 'jump off', 'jumping off', 
+        'jump from', 'about to jump', 'stab myself', 'hurt myself', 'hurting myself', 
+        'harm myself', 'swallow a bottle', 'dozens of pills', 'suicide note', 'done with life', 
+        'no reason to live', 'goodbye world', 'goodbye everyone', 'end the pain forever', 
+        'way out of this life', "wasn't alive", 'stay alive', 'disappear from this world', 
+        'throw myself', 'bear living', "i'm gone", 'be killed'
+    ]
+    
+    if any(kata in teks_pasien.lower() for kata in kata_kunci_darurat):
         return (
             "🚨 **Pesan Penting Keamanan / Important Safety Message:**\n"
             "Aku denger betapa beratnya beban yang kamu pikul saat ini. Tapi, sebagai AI, "
@@ -84,16 +94,13 @@ def cek_kondisi_darurat(teks_pasien: str) -> str | None:
         )
     return None
 
-# 5. LOGIKA PENCARIAN DATA DI DATASET PANDAS
+# ==========================================
+# 5. LOGIKA RAG PANDAS (Sama Persis)
+# ==========================================
 def cari_referensi_dataset(teks_pasien: str) -> str:
-    """
-    Mencari jawaban konselor yang paling relevan dari dataset Pandas
-    berdasarkan kata kunci curhatan pasien.
-    """
-    if df_dataset is None:
+    if df_dataset is None or df_dataset.empty:
         return "Tidak ada referensi database."
     
-    # Kamus Terjemahan Keyword Sederhana (Indo -> Inggris)
     kamus_keyword = {
         'tidur': 'sleep', 'depresi': 'depress', 'cemas': 'anxiety', 'panik': 'panic',
         'sedih': 'sad', 'marah': 'angry', 'takut': 'fear', 'bingung': 'confused',
@@ -103,101 +110,102 @@ def cari_referensi_dataset(teks_pasien: str) -> str:
         'trauma': 'trauma', 'insecure': 'insecure', 'overthinking': 'think', 'sendiri': 'lonely'
     }
     
-    # Bersihkan tanda baca dan ambil 3 kata pertama yang valid untuk mencegah Regex Error
     teks_bersih = re.sub(r'[^\w\s]', '', teks_pasien).lower()
-    kata_kunci = teks_bersih.split()
+    kata_kunci_user = teks_bersih.split()
     
-    if not kata_kunci:
+    if not kata_kunci_user:
         return "Tidak ada referensi database."
 
-    # Mapping/Terjemahkan kata kunci
-    kata_kunci_pencarian = []
-    for kata in kata_kunci:
-        if kata in kamus_keyword:
-            kata_kunci_pencarian.append(kamus_keyword[kata])
-        elif len(kata) > 3: # Masukkan kata asli jika cukup panjang
-            kata_kunci_pencarian.append(kata)
+    kata_kunci_pencarian = [kamus_keyword.get(kata, kata) for kata in kata_kunci_user if len(kamus_keyword.get(kata, kata)) > 3]
             
     if not kata_kunci_pencarian:
         return df_dataset.iloc[random.randint(0, len(df_dataset)-1)]['Response']
-    
-    # Cari kecocokan kata kunci sederhana
-    pola_pencarian = '|'.join(kata_kunci_pencarian[:4]) # Maksimal ambil 4 keyword utama
+
+    pola_pencarian = '|'.join(kata_kunci_pencarian[:4]) 
     matches = df_dataset[df_dataset['Context'].str.lower().str.contains(pola_pencarian, na=False, regex=True)]
     
     if not matches.empty:
-        # Ambil satu jawaban psikolog asli secara acak yang topiknya mirip
         return matches.iloc[0]['Response']   
     else:
-        # Jika tidak ada yang mirip, ambil sampel acak agar AI tetap punya insight medis
         return df_dataset.iloc[random.randint(0, len(df_dataset)-1)]['Response']
 
-# 6. ROUTE WEBPAGE
-@app.route('/')
-def home():
-    return render_template('index.html')
+# ==========================================
+# 6. UI & LOGIKA CHAT STREAMLIT
+# ==========================================
+# Inisialisasi history chat di session state
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    # Pesan sapaan awal
+    st.session_state.messages.append({"role": "model", "content": "Hai! Aku di sini buat dengerin cerita kamu. Ada yang lagi mengganjal di hati hari ini?"})
 
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    data = request.json
-    curhatan_pasien = data.get("message", "")
-    history = data.get("history", [])
+# Tampilkan history obrolan
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Menerima input dari user
+if prompt := st.chat_input("Ketik pesan Anda di sini..."):
+    # Tampilkan pesan user di UI
+    st.chat_message("user").markdown(prompt)
+    # Simpan ke history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    # Cek Guardrail Darurat
+    pesan_darurat = cek_kondisi_darurat(prompt)
     
-    print(f"\n[ARSITEKTUR STEP 1] Menerima input user: '{curhatan_pasien}'")
-    
-    if not curhatan_pasien.strip():
-        print("[ARSITEKTUR STEP 1.5] Pesan kosong ditolak.")
-        return jsonify({"response": "Eh, pesannya kosong nih. Cerita yuk, aku dengerin."})
-    
-    pesan_darurat = cek_kondisi_darurat(curhatan_pasien)
     if pesan_darurat:
-        print("[ARSITEKTUR STEP 2] GUARDRAIL AKTIF: Kondisi darurat dicegat!")
-        return jsonify({"response": pesan_darurat})
+        with st.chat_message("model"):
+            st.markdown(pesan_darurat)
+        st.session_state.messages.append({"role": "model", "content": pesan_darurat})
     
-    print("[ARSITEKTUR STEP 2] Guardrail Aman. Memulai proses RAG.")
-    try:
-        start_rag = time.time()
-        # Ambil data jawaban psikolog asli dari dataset lokal menggunakan Pandas
-        referensi_medis = cari_referensi_dataset(curhatan_pasien)
-        end_rag = time.time()
-        print(f"[ARSITEKTUR STEP 3] RAG Selesai ({end_rag - start_rag:.3f} detik). Referensi {'ditemukan' if 'Tidak ada' not in referensi_medis else 'acak diambil'}.")
-        
-        contents_payload = []
-        for msg in history:
-            role = "user" if msg["sender"] == "user" else "model"
-            contents_payload.append(
-                types.Content(role=role, parts=[types.Part.from_text(text=msg["text"])])
-            )
-        
-        # Gabungkan pesan terbaru dengan konteks referensi lokal di ujung payload
-        prompt_dengan_konteks = (
-            f"REFERENSI KASUS NYATA (Data Lokal):\n{referensi_medis}\n\n"
-            f"CURHATAN PASIEN SEKARANG:\n{curhatan_pasien}"
-        )
-        
-        contents_payload.append(
-            types.Content(role="user", parts=[types.Part.from_text(text=prompt_dengan_konteks)])
-        )
-        
-        print("[ARSITEKTUR STEP 4] Mengirim gabungan prompt ke Gemini API...")
-        start_api = time.time()
-        
-        # Kirim ke Gemini
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=contents_payload,
-            config=types.GenerateContentConfig(
-                system_instruction=SOP_PSIKOLOG,
-                temperature=0.78,
-                max_output_tokens=2500
-            )
-        )
-        end_api = time.time()
-        print(f"[ARSITEKTUR STEP 5] Respons diterima dari Gemini ({end_api - start_api:.2f} detik). Mengirim ke UI.")
-        
-        return jsonify({"response": response.text})
-    except Exception as e:
-        return jsonify({"response": f"Aduh maaf, otak backend aku lagi nge-blank semenit: {str(e)}"})
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    else:
+        # Jika aman, jalankan RAG dan Gemini
+        with st.chat_message("model"):
+            message_placeholder = st.empty()
+            message_placeholder.markdown("*(Sedang mengetik...)*")
+            
+            try:
+                # 1. RAG
+                referensi_medis = cari_referensi_dataset(prompt)
+                
+                # 2. Susun payload untuk Gemini
+                contents_payload = []
+                for msg in st.session_state.messages[:-1]: # Ambil history kecuali pesan terakhir
+                    role = "user" if msg["role"] == "user" else "model"
+                    contents_payload.append(
+                        types.Content(role=role, parts=[types.Part.from_text(text=msg["content"])])
+                    )
+                
+                # 3. Gabungkan pesan terbaru dengan konteks lokal
+                prompt_dengan_konteks = (
+                    f"REFERENSI KASUS NYATA (Data Lokal):\n{referensi_medis}\n\n"
+                    f"CURHATAN PASIEN SEKARANG:\n{prompt}"
+                )
+                contents_payload.append(
+                    types.Content(role="user", parts=[types.Part.from_text(text=prompt_dengan_konteks)])
+                )
+                
+                # 4. Panggil Gemini
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=contents_payload,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SOP_PSIKOLOG,
+                        temperature=0.78,
+                        max_output_tokens=2500
+                    )
+                )
+                
+                # 5. Tampilkan hasil
+                message_placeholder.markdown(response.text)
+                st.session_state.messages.append({"role": "model", "content": response.text})
+                
+            except Exception as e:
+                pesan_error = str(e)
+                if "429" in pesan_error or "RESOURCE_EXHAUSTED" in pesan_error:
+                    error_teks = "Aduh, maaf banget ya... Otakku lagi butuh napas sebentar karena server Google limit. Boleh kasih aku waktu istirahat sekitar 1 menit? ⏳"
+                else:
+                    error_teks = f"Waduh, koneksi batinku lagi agak terganggu nih. Error: {pesan_error}"
+                
+                message_placeholder.markdown(error_teks)
+                st.session_state.messages.append({"role": "model", "content": error_teks})
