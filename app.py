@@ -12,7 +12,7 @@ from google.genai import types
 # ==========================================
 st.set_page_config(page_title="Ruang Aman - Psikolog AI", page_icon="🌿", layout="centered")
 st.title("🌿 Ruang Aman AI")
-st.caption("Sahabat curhat yang aman, empatik, dan menjaga privasimu.")
+st.caption("A friend to confide in who is safe, empathetic, and protects your privacy.")
 
 # ==========================================
 # 2. INISIALISASI GEMINI CLIENT & DATASET
@@ -136,7 +136,7 @@ def cari_referensi_dataset(teks_pasien: str) -> str:
 if "messages" not in st.session_state:
     st.session_state.messages = []
     # Pesan sapaan awal
-    st.session_state.messages.append({"role": "model", "content": "Hai! Aku di sini buat dengerin cerita kamu. Ada yang lagi mengganjal di hati hari ini?"})
+    st.session_state.messages.append({"role": "model", "content": "Hai! I'm here to listen to your story. Is there anything else bothering you today?"})
 
 # Tampilkan history obrolan
 for msg in st.session_state.messages:
@@ -144,7 +144,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # Menerima input dari user
-if prompt := st.chat_input("Ketik pesan Anda di sini..."):
+if prompt := st.chat_input("Type your message here..."):
     # Tampilkan pesan user di UI
     st.chat_message("user").markdown(prompt)
     # Simpan ke history
@@ -162,7 +162,7 @@ if prompt := st.chat_input("Ketik pesan Anda di sini..."):
         # Jika aman, jalankan RAG dan Gemini
         with st.chat_message("model"):
             message_placeholder = st.empty()
-            message_placeholder.markdown("*(Sedang mengetik...)*")
+            message_placeholder.markdown("*(Ruang Aman is thinking...)*")
             
             try:
                 # 1. RAG
@@ -203,9 +203,9 @@ if prompt := st.chat_input("Ketik pesan Anda di sini..."):
             except Exception as e:
                 pesan_error = str(e)
                 if "429" in pesan_error or "RESOURCE_EXHAUSTED" in pesan_error:
-                    error_teks = "Aduh, maaf banget ya... Otakku lagi butuh napas sebentar karena server Google limit. Boleh kasih aku waktu istirahat sekitar 1 menit? ⏳"
+                    error_teks = "Ouch, I'm really sorry... My brain just needs a breather because Google's servers are limited. Can you give me a break of about 1 minute? ⏳"
                 else:
-                    error_teks = f"Waduh, koneksi batinku lagi agak terganggu nih. Error: {pesan_error}"
+                    error_teks = f"Wow, my inner connection is a bit disturbed. Error: {pesan_error}"
                 
                 message_placeholder.markdown(error_teks)
                 st.session_state.messages.append({"role": "model", "content": error_teks})
