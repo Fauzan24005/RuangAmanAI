@@ -18,7 +18,7 @@ st.caption("Sahabat curhat yang aman, empatik, dan menjaga privasimu.")
 # 2. INISIALISASI GEMINI CLIENT & DATASET
 # ==========================================
 # Untuk deploy di Streamlit Cloud, masukkan API KEY di menu "Advanced Settings -> Secrets"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "MASUKKAN_API_KEY_CADANGAN_DISINI") 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Gunakan cache agar Pandas tidak meload ulang dataset setiap kali user nge-chat
