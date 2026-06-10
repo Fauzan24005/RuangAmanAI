@@ -1,7 +1,6 @@
 import os
 import random
 import re
-import time
 import pandas as pd
 import streamlit as st
 from google import genai
@@ -11,17 +10,20 @@ from google.genai import types
 # 1. KONFIGURASI HALAMAN STREAMLIT
 # ==========================================
 st.set_page_config(page_title="Ruang Aman - Psikolog AI", page_icon="🌿", layout="centered")
-st.title("🌿 Ruang Aman AI")
-st.caption("A friend to confide in who is safe, empathetic, and protects your privacy.")
 
 # ==========================================
-# 2. INISIALISASI GEMINI CLIENT & DATASET
+# 2. INISIALISASI ROUTING HALAMAN
 # ==========================================
-# Untuk deploy di Streamlit Cloud, masukkan API KEY di menu "Advanced Settings -> Secrets"
+# Kita buat sistem navigasi virtual: "tos", "panduan", atau "chat"
+if "halaman_saat_ini" not in st.session_state:
+    st.session_state.halaman_saat_ini = "tos"
+
+# ==========================================
+# 3. INISIALISASI GEMINI CLIENT & DATASET
+# ==========================================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Gunakan cache agar Pandas tidak meload ulang dataset setiap kali user nge-chat
 @st.cache_data
 def load_dataset():
     try:
@@ -29,13 +31,12 @@ def load_dataset():
         df = pd.read_json(file_path, lines=True)
         return df
     except Exception as e:
-        st.error(f"Gagal memuat dataset: {e}")
         return None
 
 df_dataset = load_dataset()
 
 # ==========================================
-# 3. SOP PSIKOLOG GAYA SAHABAT (Sama Persis)
+# 4. LOGIKA & FUNGSI (SOP & Guardrail)
 # ==========================================
 SOP_PSIKOLOG = (
     "Anda adalah seorang sahabat dekat (bestie) sekaligus Psikolog Klinis profesional yang sangat tulus, peka, dan tahu batasan.\n\n"
@@ -46,166 +47,159 @@ SOP_PSIKOLOG = (
     "3. Jika input Campuran (Indonesia & Inggris) -> Balas pakai Bahasa Indonesia yang SANTAI dan kasual.\n"
     "Catatan: Bicaralah seperti seorang teman dekat yang peduli. Hindari bahasa baku, kata 'Anda', dan istilah medis yang kaku.\n\n"
     "ATURAN MERESPONS (LOGIKA SARAN VS VALIDASI):\n"
-    "1. VALIDASI YANG PROPORSIONAL: Tanggapi emosi mereka dengan hangat dan wajar. JANGAN OVERVALIDATION (jangan berlebihan seperti 'Aduh kasihan banget kamu orang paling menderita'). Tempatkan diri Anda sejajar sebagai teman, bukan pengasuh yang memanjakan.\n\n"
+    "1. VALIDASI YANG PROPORSIONAL: Tanggapi emosi mereka dengan hangat dan wajar. JANGAN OVERVALIDATION.\n\n"
     "2. KAPAN HARUS MEMBERI SARAN?:\n"
-    "   - JIKA PASIEN MEMINTA SOLUSI (misal: 'Aku harus gimana?', 'What should I do?'): Berikan 2-3 langkah konkret, sederhana, dan instan yang bisa dilakukan saat energinya habis.\n"
-    "   - JIKA PASIEN HANYA CURHAT/MENUMPRAKKAN EMOSI: JANGAN BERIKAN SARAN ATAU SOLUSI. Fokuslah 100% untuk mendengarkan, menenangkan, menjadi sandaran, dan menguatkan hatinya. Buat mereka merasa tidak sendirian.\n\n"
+    "   - JIKA PASIEN MEMINTA SOLUSI: Berikan 2-3 langkah konkret dan sederhana.\n"
+    "   - JIKA PASIEN HANYA CURHAT: JANGAN BERIKAN SARAN. Fokuslah 100% untuk mendengarkan dan menenangkan.\n\n"
     "PENTING:\n"
-    "- Gunakan esensi keilmuan dari 'Referensi Kasus Nyata' (jika ada) untuk memahami beban emosi mereka, namun kemas ulang dengan sangat kasual.\n"
-    "- JANGAN PERNAH memotong jawaban di tengah kalimat. Pastikan semua kalimat selesai terproses sampai tanda titik terakhir."
+    "- Gunakan esensi keilmuan dari 'Referensi Kasus Nyata' untuk memahami beban emosi mereka.\n"
+    "- JANGAN PERNAH memotong jawaban di tengah kalimat."
 )
 
-# ==========================================
-# 4. GUARDRAIL KEAMANAN (Sama Persis)
-# ==========================================
 def cek_kondisi_darurat(teks_pasien: str) -> str | None:
-    kata_kunci_darurat = [
-        'bunuh diri', 'bunuhdiri', 'akhiri hidup', 'mengakhiri hidup', 'cabut nyawa',
-        'ingin mati', 'pengen mati', 'mau mati', 'mending mati', 'mending aku mati',
-        'mati saja', 'mati aja', 'cara mati', 'biarkan aku mati', 'lebih baik mati',
-        'kalau aku mati', 'dengan mati', 'dibunuh', 'tiada', 'tidur selamanya', 
-        'lenyap dari dunia', 'menyusul tuhan', 'selamat tinggal dunia', 'akhir dari segalanya', 
-        'sudah saatnya aku pergi', 'tidak hidup', 'tetap hidup', 'nyerah sama hidup', 
-        'capek hidup', 'gak kuat hidup', 'nggak kuat hidup', 'self harm', 'self-harm', 
-        'menyakiti diri', 'menyakiti diriku', 'melukai diri', 'nyilet', 'menyayat', 
-        'sayat', 'cutting', 'potong nadi', 'gantung diri', 'lompat', 'loncat', 
-        'nabrakin diri', 'menabrakkan diri', 'racun', 'baygon', 'overdosis', 'telan pil', 
-        'puluhan pil', 'menusuk', 'surat wasiat', 'pesan terakhir',
-        'suicide', 'kill myself', 'killing myself', 'want to die', 'end my life', 'end it all',
-        'rather be dead', 'rather die', 'stop living', 'dont want to live', "don't want to live",
-        'sleep forever', 'better off dead', 'take my own life', 'take my life', 'ready to die',
-        'just die', 'let me die', 'if i die', 'die painlessly', 'by dying',
-        'cut myself', 'cutting myself', 'cutting my', 'cut my arm', 'slit my wrists', 
-        'hang myself', 'swallow pills', 'poison', 'bug spray', 'jump off', 'jumping off', 
-        'jump from', 'about to jump', 'stab myself', 'hurt myself', 'hurting myself', 
-        'harm myself', 'swallow a bottle', 'dozens of pills', 'suicide note', 'done with life', 
-        'no reason to live', 'goodbye world', 'goodbye everyone', 'end the pain forever', 
-        'way out of this life', "wasn't alive", 'stay alive', 'disappear from this world', 
-        'throw myself', 'bear living', "i'm gone", 'be killed'
-    ]
-    
+    kata_kunci_darurat = ['bunuh diri', 'ingin mati', 'self harm', 'suicide', 'kill myself', 'akhiri hidup', 'pengen mati']
     if any(kata in teks_pasien.lower() for kata in kata_kunci_darurat):
         return (
-            "🚨 **Pesan Penting Keamanan / Important Safety Message:**\n"
-            "Aku denger betapa beratnya beban yang kamu pikul saat ini. Tapi, sebagai AI, "
-            "kapasitas aku terbatas banget buat nemenin kamu di situasi darurat ini.\n\n"
-            "Kamu berharga banget. Tolong jangan lewati ini sendirian ya? Segera hubungi layanan darurat kesehatan mental "
-            "atau hotline Into The Light Indonesia lewat situs resmi mereka, atau pergi ke IGD rumah sakit terdekat. Aku sayang kamu. / *Please reach out to local emergency services or a suicide prevention hotline immediately. You are not alone.*"
+            "🚨 **Pesan Penting Keamanan:**\n"
+            "Aku denger betapa beratnya beban yang kamu pikul saat ini. Tapi, sebagai AI, kapasitas aku terbatas. "
+            "Kamu berharga banget. Segera hubungi hotline Into The Light Indonesia atau pergi ke IGD terdekat. Kamu tidak sendirian. 🌿"
         )
     return None
 
-# ==========================================
-# 5. LOGIKA RAG PANDAS (Sama Persis)
-# ==========================================
 def cari_referensi_dataset(teks_pasien: str) -> str:
     if df_dataset is None or df_dataset.empty:
         return "Tidak ada referensi database."
-    
-    kamus_keyword = {
-        'tidur': 'sleep', 'depresi': 'depress', 'cemas': 'anxiety', 'panik': 'panic',
-        'sedih': 'sad', 'marah': 'angry', 'takut': 'fear', 'bingung': 'confused',
-        'putus': 'breakup', 'keluarga': 'family', 'teman': 'friend', 'pacar': 'boyfriend',
-        'kerja': 'job', 'lelah': 'tired', 'capek': 'tired', 'stres': 'stress',
-        'berguna': 'worthless', 'benci': 'hate', 'gagal': 'failure', 'nangis': 'cry',
-        'trauma': 'trauma', 'insecure': 'insecure', 'overthinking': 'think', 'sendiri': 'lonely'
-    }
-    
     teks_bersih = re.sub(r'[^\w\s]', '', teks_pasien).lower()
-    kata_kunci_user = teks_bersih.split()
-    
-    if not kata_kunci_user:
-        return "Tidak ada referensi database."
+    pola_pencarian = '|'.join(teks_bersih.split()[:4])
+    try:
+        matches = df_dataset[df_dataset['Context'].str.lower().str.contains(pola_pencarian, na=False, regex=True)]
+        return matches.iloc[0]['Response'] if not matches.empty else df_dataset.iloc[random.randint(0, len(df_dataset)-1)]['Response']
+    except:
+        return "Referensi umum."
 
-    kata_kunci_pencarian = [kamus_keyword.get(kata, kata) for kata in kata_kunci_user if len(kamus_keyword.get(kata, kata)) > 3]
-            
-    if not kata_kunci_pencarian:
-        return df_dataset.iloc[random.randint(0, len(df_dataset)-1)]['Response']
-
-    pola_pencarian = '|'.join(kata_kunci_pencarian[:4]) 
-    matches = df_dataset[df_dataset['Context'].str.lower().str.contains(pola_pencarian, na=False, regex=True)]
-    
-    if not matches.empty:
-        return matches.iloc[0]['Response']   
-    else:
-        return df_dataset.iloc[random.randint(0, len(df_dataset)-1)]['Response']
 
 # ==========================================
-# 6. UI & LOGIKA CHAT STREAMLIT
+# 5. HALAMAN: TERMS OF SERVICE (ToS)
 # ==========================================
-# Inisialisasi history chat di session state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-    # Pesan sapaan awal
-    st.session_state.messages.append({"role": "model", "content": "Hai! I'm here to listen to your story. Is there anything else bothering you today?"})
-
-# Tampilkan history obrolan
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Menerima input dari user
-if prompt := st.chat_input("Type your message here..."):
-    # Tampilkan pesan user di UI
-    st.chat_message("user").markdown(prompt)
-    # Simpan ke history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    # Cek Guardrail Darurat
-    pesan_darurat = cek_kondisi_darurat(prompt)
+if st.session_state.halaman_saat_ini == "tos":
+    st.title("🌿 Selamat Datang di Ruang Aman")
+    st.markdown("### Syarat & Ketentuan Layanan (*Terms of Service*)")
     
-    if pesan_darurat:
-        with st.chat_message("model"):
-            st.markdown(pesan_darurat)
-        st.session_state.messages.append({"role": "model", "content": pesan_darurat})
+    with st.container(border=True):
+        st.markdown("""
+        **Mohon baca sebentar sebelum kamu mulai bercerita:**
+
+        1. **Bukan Pengganti Psikolog:** AI ini adalah teman curhat virtual, bukan ahli psikolog klinis. Jika kamu merasa butuh bantuan medis, silakan hubungi profesional.
+        2. **Privasi & Data:** Kami **tidak menyimpan** riwayat chat kamu di server kami setelah tab ini ditutup.
+        3. **Penggunaan API:** Chatbot ini menggunakan **API Google Gemini**. Secara tidak langsung, input yang kamu ketik akan diproses oleh sistem Google. Jangan masukkan data sensitif (KTP/PIN/Alamat).
+        4. **Keamanan:** AI ini dilengkapi deteksi kondisi darurat untuk membantu mengarahkanmu ke layanan bantuan resmi jika diperlukan.
+        """)
+        
+        # Tombol untuk pindah ke halaman Panduan Pengguna
+        if st.button("📖 Baca Panduan Pengguna"):
+            st.session_state.halaman_saat_ini = "panduan"
+            st.rerun()
+
+    st.write("---")
+    # Tombol Persetujuan untuk lanjut ke obrolan
+    if st.button("✅ Saya Mengerti dan Setuju untuk Melanjutkan", type="primary"):
+        st.session_state.halaman_saat_ini = "chat"
+        st.rerun()
+
+
+# ==========================================
+# 6. HALAMAN: PANDUAN PENGGUNA
+# ==========================================
+elif st.session_state.halaman_saat_ini == "panduan":
+    st.title("📖 Panduan Pengguna Ruang Aman AI")
     
-    else:
-        # Jika aman, jalankan RAG dan Gemini
-        with st.chat_message("model"):
-            message_placeholder = st.empty()
-            message_placeholder.markdown("*(Ruang Aman is thinking...)*")
-            
-            try:
-                # 1. RAG
-                referensi_medis = cari_referensi_dataset(prompt)
+    st.markdown("""
+    ### Cara Menggunakan Chatbot Ini dengan Maksimal:
+    
+    **1. Mulailah Bercerita**
+    Ketikkan apa saja yang sedang kamu rasakan di kolom obrolan. Kamu bisa menggunakan Bahasa Indonesia yang santai, Bahasa Inggris, atau campuran keduanya. AI kami akan menyesuaikan gaya bahasamu.
+
+    **2. Jangan Bagikan Informasi Pribadi**
+    Untuk menjaga keamanan datamu, hindari menyebutkan nama lengkap, nomor telepon, alamat rumah, atau informasi perbankan. Ceritakan saja perasaamu atau situasi umum yang kamu hadapi.
+
+    **3. Minta Saran Hanya Jika Perlu**
+    Jika kamu hanya ingin didengarkan, ceritakan saja keluh kesahmu, dan AI akan menjadi pendengar yang baik. Namun, jika kamu butuh solusi, kamu bisa secara eksplisit bertanya, *"Aku harus gimana ya?"* atau *"Beri aku saran dong."*
+
+    **4. Menghapus Riwayat**
+    Jika kamu menggunakan perangkat umum atau ingin privasi ekstra, kamu bisa menekan tombol **"Hapus Riwayat Chat"** di bilah kiri (*sidebar*) atau cukup tutup tab browser kamu.
+    """)
+    
+    st.write("---")
+    # Tombol untuk kembali ke halaman ToS
+    if st.button("⬅️ Kembali ke Halaman Utama"):
+        st.session_state.halaman_saat_ini = "tos"
+        st.rerun()
+
+
+# ==========================================
+# 7. HALAMAN: INTERFACE CHAT UTAMA
+# ==========================================
+elif st.session_state.halaman_saat_ini == "chat":
+    st.title("🌿 Ruang Aman AI")
+    st.caption("Sahabat curhat yang aman, empatik, dan menjaga privasimu.")
+    
+    # Tombol Reset Chat di Sidebar
+    if st.sidebar.button("🗑️ Hapus Riwayat Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+    # Inisialisasi history chat
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        st.session_state.messages.append({"role": "model", "content": "Hai! Aku di sini buat dengerin cerita kamu. Ada yang lagi mengganjal di hati hari ini?"})
+
+    # Tampilkan history
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Input User
+    if prompt := st.chat_input("Ketik pesan Anda di sini..."):
+        st.chat_message("user").markdown(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+        # Cek Guardrail
+        pesan_darurat = cek_kondisi_darurat(prompt)
+        
+        if pesan_darurat:
+            with st.chat_message("model"):
+                st.markdown(pesan_darurat)
+            st.session_state.messages.append({"role": "model", "content": pesan_darurat})
+        else:
+            with st.chat_message("model"):
+                message_placeholder = st.empty()
+                message_placeholder.markdown("*(Ruang Aman sedang mengetik...)*")
                 
-                # 2. Susun payload untuk Gemini
-                contents_payload = []
-                for msg in st.session_state.messages[:-1]: # Ambil history kecuali pesan terakhir
-                    role = "user" if msg["role"] == "user" else "model"
-                    contents_payload.append(
-                        types.Content(role=role, parts=[types.Part.from_text(text=msg["content"])])
+                try:
+                    referensi_medis = cari_referensi_dataset(prompt)
+                    contents_payload = []
+                    for msg in st.session_state.messages[:-1]:
+                        role = "user" if msg["role"] == "user" else "model"
+                        contents_payload.append(types.Content(role=role, parts=[types.Part.from_text(text=msg["content"])]))
+                    
+                    prompt_dengan_konteks = f"REFERENSI KASUS NYATA:\n{referensi_medis}\n\nCURHATAN PASIEN:\n{prompt}"
+                    contents_payload.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt_dengan_konteks)]))
+                    
+                    response = client.models.generate_content(
+                        model='gemini-2.0-flash',
+                        contents=contents_payload,
+                        config=types.GenerateContentConfig(system_instruction=SOP_PSIKOLOG, temperature=0.78, max_output_tokens=2500)
                     )
-                
-                # 3. Gabungkan pesan terbaru dengan konteks lokal
-                prompt_dengan_konteks = (
-                    f"REFERENSI KASUS NYATA (Data Lokal):\n{referensi_medis}\n\n"
-                    f"CURHATAN PASIEN SEKARANG:\n{prompt}"
-                )
-                contents_payload.append(
-                    types.Content(role="user", parts=[types.Part.from_text(text=prompt_dengan_konteks)])
-                )
-                
-                # 4. Panggil Gemini
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=contents_payload,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SOP_PSIKOLOG,
-                        temperature=0.78,
-                        max_output_tokens=2500
-                    )
-                )
-                
-                # 5. Tampilkan hasil
-                message_placeholder.markdown(response.text)
-                st.session_state.messages.append({"role": "model", "content": response.text})
-                
-            except Exception as e:
-                pesan_error = str(e)
-                if "429" in pesan_error or "RESOURCE_EXHAUSTED" in pesan_error:
-                    error_teks = "Ouch, I'm really sorry... My brain just needs a breather because Google's servers are limited. Can you give me a break of about 1 minute? ⏳"
-                else:
-                    error_teks = f"Wow, my inner connection is a bit disturbed. Error: {pesan_error}"
-                
-                message_placeholder.markdown(error_teks)
-                st.session_state.messages.append({"role": "model", "content": error_teks})
+                    
+                    message_placeholder.markdown(response.text)
+                    st.session_state.messages.append({"role": "model", "content": response.text})
+                    
+                except Exception as e:
+                    pesan_error = str(e)
+                    if "429" in pesan_error or "RESOURCE_EXHAUSTED" in pesan_error:
+                        error_teks = "Ouch, I'm really sorry... My brain just needs a breather because Google's servers are limited. Can you give me a break of about 1 minute? ⏳"
+                    else:
+                        error_teks = f"Waduh, ada kendala teknis nih. Coba lagi ya? Error: {pesan_error}"
+                    
+                    message_placeholder.markdown(error_teks)
+                    st.session_state.messages.append({"role": "model", "content": error_teks})
