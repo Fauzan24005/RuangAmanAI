@@ -213,13 +213,13 @@ def run_test_rag():
     print("="*50)
     
     try:
-        # Load dataset asli kamu
+        # Load dataset asli
         df_dataset = pd.read_json("dataset/cleaned_dataset.json", lines=True)
     except Exception as e:
         print("Gagal memuat dataset:", e)
         return
 
-    # Fungsi dummy pencarian (sesuaikan dengan logika di app.py)
+    # Fungsi dummy pencarian
     def cari_referensi(teks):
         kata_kunci = teks.lower().split()
         for index, row in df_dataset.iterrows():
@@ -279,7 +279,6 @@ def run_test_latency():
 
 
 # EKSEKUSI UTAMA
-
 if __name__ == "__main__":
     print("\nMEMULAI ANALISIS SISTEM RUANG AMAN AI SECARA OTOMATIS...")
     print("Total Data Uji Disiapkan: 100+ Skenario Percakapan")
