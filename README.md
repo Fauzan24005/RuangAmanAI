@@ -10,7 +10,7 @@ Langkah-langkah untuk mengakses aplikasi:
 1. Pastikan perangkat Anda (komputer, laptop, atau ponsel pintar) terhubung ke jaringan internet.
 2. Buka peramban web pilihan Anda.
 3. Ketikkan atau klik tautan berikut pada bilah alamat peramban Anda:
-   https://...
+   https://ruang-aman.streamlit.app/
 4. Tekan tombol Enter. Antarmuka chatbot akan langsung dimuat di peramban Anda tanpa memerlukan akun atau pendaftaran.
 
 ## 1.3 Cara Menggunakan Chatbot
@@ -33,3 +33,6 @@ Respons AI akan muncul di area percakapan. Bacalah respons tersebut dengan seksa
 
 ### Langkah 6: Protokol Kedaruratan (Penting)
 Aplikasi ini dilengkapi dengan sistem deteksi kedaruratan otomatis (cek_kondisi_darurat). Apabila sistem mendeteksi ekspresi terkait self-harm atau pikiran untuk mengakhiri hidup dalam pesan Anda, chatbot akan segera menghentikan percakapan kasual dan menampilkan pesan peringatan darurat yang mengarahkan Anda ke layanan bantuan profesional, seperti Into The Light Indonesia atau fasilitas kesehatan terdekat. Mohon ikuti arahan tersebut dan segera cari bantuan profesional.
+
+#Link Canva Poster
+https://canva.link/6r78q8l12mrfj9s
